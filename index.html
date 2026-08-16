@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#4A90E2">
+<title>키워드 검색량 체커</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body {
+    margin: 0;
+    padding: 24px 14px 60px;
+    min-height: 100vh;
+    background: linear-gradient(180deg, #4A90E2 0%, #F2F5F9 220px);
+    font-family: 'Malgun Gothic', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    color: #222;
+  }
+  .container { max-width: 720px; margin: 0 auto; }
+  h1 {
+    text-align: center;
+    color: #fff;
+    font-size: 1.7rem;
+    margin: 8px 0 6px;
+    text-shadow: 0 2px 6px rgba(0,0,0,0.15);
+  }
+  .subtitle {
+    text-align: center;
+    color: rgba(255,255,255,0.9);
+    font-size: 0.95rem;
+    margin: 0 0 22px;
+  }
+  .searchBox {
+    display: flex;
+    gap: 8px;
+    background: #fff;
+    border-radius: 16px;
+    padding: 10px;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.10);
+    margin-bottom: 12px;
+  }
+  .searchBox input {
+    flex: 1;
+    border: none;
+    outline: none;
+    font-size: 1.1rem;
+    padding: 10px 8px;
+    min-width: 0;
+  }
+  .searchBox button {
+    background: #4A90E2;
+    color: #fff;
+    border: none;
+    border-radius: 12px;
+    padding: 0 20px;
+    font-size: 1.05rem;
+    font-weight: bold;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .searchBox button:active { background: #3A7BC8; }
+  .searchBox button:disabled { background: #aac4e6; }
+
+  .notice {
+    background: #FFF6E0;
+    border: 1px solid #F2D98A;
+    color: #7A5B00;
+    font-size: 0.85rem;
+    border-radius: 12px;
+    padding: 10px 14px;
+    margin-bottom: 18px;
+    line-height: 1.5;
+  }
+
+  .toolbar {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 8px;
+  }
+  .toolbar button {
+    background: none;
+    border: none;
+    color: #888;
+    font-size: 0.85rem;
+    text-decoration: underline;
+    cursor: pointer;
+  }
+
+  .card {
+    background: #fff;
+    border-radius: 16px;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.08);
+    overflow: hidden;
+  }
+  .tableWrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; min-width: 480px; }
+  th, td { padding: 12px 10px; text-align: right; font-size: 0.95rem; white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; }
+  th {
+    background: #F0F7FF;
+    color: #4A6A8A;
+    font-size: 0.82rem;
+    font-weight: bold;
+    position: sticky;
+    top: 0;
+  }
+  tbody tr { border-top: 1px solid #F0F0F0; }
+  tbody tr:active { background: #F7FAFF; }
+  .kw { font-weight: bold; color: #222; }
+  .total { color: #E2662E; font-weight: bold; }
+  .muted { color: #bbb; font-size: 0.85rem; }
+  .delBtn {
+    background: none;
+    border: none;
+    color: #ccc;
+    font-size: 1.1rem;
+    cursor: pointer;
+    padding: 0 4px;
+  }
+  .empty {
+    text-align: center;
+    color: #999;
+    padding: 40px 20px;
+    font-size: 0.95rem;
+  }
+  .errRow { color: #C0392B; font-size: 0.85rem; padding: 10px 14px; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>🔍 키워드 검색량 체커</h1>
+  <div class="subtitle">월간 검색량을 확인해서 글감 우선순위를 정하세요</div>
+
+  <div class="searchBox">
+    <input id="kwInput" type="text" placeholder="키워드 입력 (예: 에어컨필터청소)" autocomplete="off">
+    <button id="searchBtn" onclick="runSearch()">확인</button>
+  </div>
+
+  <div id="errBox"></div>
+
+  <div class="notice">
+    ⚠️ 발행량(경쟁 블로그 개수)은 네이버 API 연동 문제로 현재 준비중입니다. 우선 검색량만 정확하게 보여드려요.
+  </div>
+
+  <div class="toolbar">
+    <button onclick="clearAll()">전체 지우기</button>
+  </div>
+
+  <div class="card">
+    <div class="tableWrap">
+      <table>
+        <thead>
+          <tr>
+            <th>키워드</th>
+            <th>PC</th>
+            <th>모바일</th>
+            <th>합계</th>
+            <th>발행량</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="resultsBody"></tbody>
+      </table>
+    </div>
+    <div id="emptyState" class="empty">아직 확인한 키워드가 없어요.<br>위에 키워드를 입력해보세요.</div>
+  </div>
+</div>
+
+<script>
+const API_BASE = "https://keyword-checker.rbwkdtkfkd.workers.dev";
+const STORAGE_KEY = "keywordCheckerResults";
+
+let results = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+
+function save() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(results));
+}
+
+function fmt(n) {
+  if (n === null || n === undefined) return "-";
+  return n.toLocaleString("ko-KR");
+}
+
+function render() {
+  const body = document.getElementById("resultsBody");
+  const empty = document.getElementById("emptyState");
+  const sorted = [...results].sort((a, b) => (b.totalSearch || 0) - (a.totalSearch || 0));
+
+  if (sorted.length === 0) {
+    body.innerHTML = "";
+    empty.style.display = "block";
+    return;
+  }
+  empty.style.display = "none";
+
+  body.innerHTML = sorted.map((r) => `
+    <tr>
+      <td class="kw">${escapeHtml(r.keyword)}</td>
+      <td>${fmt(r.pcSearch)}</td>
+      <td>${fmt(r.mobileSearch)}</td>
+      <td class="total">${fmt(r.totalSearch)}</td>
+      <td class="muted">${r.publishCount !== null && r.publishCount !== undefined ? fmt(r.publishCount) : "준비중"}</td>
+      <td><button class="delBtn" onclick="removeKeyword('${encodeURIComponent(r.keyword)}')">✕</button></td>
+    </tr>
+  `).join("");
+}
+
+function escapeHtml(s) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function removeKeyword(encodedKw) {
+  const kw = decodeURIComponent(encodedKw);
+  results = results.filter((r) => r.keyword !== kw);
+  save();
+  render();
+}
+
+function clearAll() {
+  if (!confirm("전체 결과를 지울까요?")) return;
+  results = [];
+  save();
+  render();
+}
+
+function showError(msg) {
+  document.getElementById("errBox").innerHTML = msg ? `<div class="errRow">${escapeHtml(msg)}</div>` : "";
+}
+
+async function runSearch() {
+  const input = document.getElementById("kwInput");
+  const btn = document.getElementById("searchBtn");
+  const keyword = input.value.trim();
+  if (!keyword) return;
+
+  showError("");
+  btn.disabled = true;
+  btn.textContent = "확인중...";
+
+  try {
+    const res = await fetch(`${API_BASE}/?q=${encodeURIComponent(keyword)}`);
+    const data = await res.json();
+    if (data.error) {
+      showError(`조회 실패: ${data.error}`);
+      return;
+    }
+    results = results.filter((r) => r.keyword !== data.keyword);
+    results.push(data);
+    save();
+    render();
+    input.value = "";
+  } catch (e) {
+    showError("네트워크 오류가 발생했어요. 잠시 후 다시 시도해주세요.");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "확인";
+  }
+}
+
+document.getElementById("kwInput").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") runSearch();
+});
+
+render();
+</script>
+</body>
+</html>
