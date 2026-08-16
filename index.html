@@ -125,6 +125,53 @@
     font-size: 0.95rem;
   }
   .errRow { color: #C0392B; font-size: 0.85rem; padding: 10px 14px; }
+
+  .sectionTitle {
+    color: #fff;
+    font-size: 1.05rem;
+    font-weight: bold;
+    margin: 26px 0 10px 4px;
+    text-shadow: 0 1px 4px rgba(0,0,0,0.12);
+  }
+  .sectionTitle:first-of-type { margin-top: 0; }
+  .catTabs {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    padding: 12px 12px 4px;
+  }
+  .catTab {
+    flex-shrink: 0;
+    background: #F0F7FF;
+    color: #4A6A8A;
+    border: none;
+    border-radius: 20px;
+    padding: 8px 16px;
+    font-size: 0.9rem;
+    font-weight: bold;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .catTab.active { background: #4A90E2; color: #fff; }
+  .catHint { font-size: 0.8rem; color: #999; padding: 0 14px 10px; }
+  .comp {
+    display: inline-block;
+    font-size: 0.75rem;
+    font-weight: bold;
+    padding: 2px 8px;
+    border-radius: 10px;
+  }
+  .comp.high { background: #FDE8E6; color: #C0392B; }
+  .comp.mid { background: #FFF3D6; color: #B9812F; }
+  .comp.low { background: #E3F3E8; color: #2E9E5B; }
+  tr.catRow { cursor: pointer; }
+  tr.catRow td.kw { color: #4A90E2; }
+  tr.relatedRow td { background: #F7FAFF; padding: 10px 14px; }
+  .relatedList { display: flex; flex-direction: column; gap: 6px; }
+  .relatedItem { display: flex; justify-content: space-between; font-size: 0.88rem; padding: 4px 0; }
+  .relatedItem .rk { color: #444; }
+  .relatedItem .rv { color: #E2662E; font-weight: bold; }
+  .loadingRow { text-align: center; color: #999; padding: 20px; font-size: 0.9rem; }
 </style>
 </head>
 <body>
@@ -140,9 +187,28 @@
   <div id="errBox"></div>
 
   <div class="notice">
-    ⚠️ 발행량(경쟁 블로그 개수)은 네이버 API 연동 문제로 현재 준비중입니다. 우선 검색량만 정확하게 보여드려요.
+    ⚠️ 발행량(경쟁 블로그 개수)은 네이버 API 연동 문제로 현재 준비중입니다. 대신 카테고리 랭킹에는 네이버가 주는 "경쟁도"(높음/중간/낮음)를 표시해요.
   </div>
 
+  <div class="sectionTitle">📊 카테고리별 인기 키워드</div>
+  <div class="card" style="margin-bottom:20px;">
+    <div class="catTabs" id="catTabs"></div>
+    <div class="catHint">키워드를 누르면 연관 검색어 top 10이 펼쳐져요</div>
+    <div class="tableWrap">
+      <table>
+        <thead>
+          <tr>
+            <th>키워드</th>
+            <th>경쟁도</th>
+            <th>합계</th>
+          </tr>
+        </thead>
+        <tbody id="catBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="sectionTitle">🔎 내가 확인한 키워드</div>
   <div class="toolbar">
     <button onclick="clearAll()">전체 지우기</button>
   </div>
@@ -262,7 +328,117 @@ document.getElementById("kwInput").addEventListener("keydown", (e) => {
   if (e.key === "Enter") runSearch();
 });
 
+let currentCatId = null;
+const relatedCache = {};
+let openRelatedKeyword = null;
+
+function compClass(compIdx) {
+  if (compIdx === "높음") return "high";
+  if (compIdx === "중간") return "mid";
+  if (compIdx === "낮음") return "low";
+  return "mid";
+}
+
+async function loadCategories() {
+  try {
+    const res = await fetch(`${API_BASE}/categories`);
+    const data = await res.json();
+    const tabsEl = document.getElementById("catTabs");
+    tabsEl.innerHTML = (data.categories || []).map((c) => `
+      <button class="catTab" data-id="${c.id}" onclick="loadCategory('${c.id}')">${escapeHtml(c.label)}</button>
+    `).join("");
+    if (data.categories && data.categories[0]) {
+      loadCategory(data.categories[0].id);
+    }
+  } catch (e) {
+    document.getElementById("catBody").innerHTML = `<tr><td colspan="3" class="loadingRow">카테고리를 불러오지 못했어요</td></tr>`;
+  }
+}
+
+async function loadCategory(id) {
+  currentCatId = id;
+  openRelatedKeyword = null;
+  document.querySelectorAll(".catTab").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.id === id);
+  });
+  const body = document.getElementById("catBody");
+  body.innerHTML = `<tr><td colspan="3" class="loadingRow">불러오는 중...</td></tr>`;
+  try {
+    const res = await fetch(`${API_BASE}/category?id=${encodeURIComponent(id)}`);
+    const data = await res.json();
+    if (data.error) {
+      body.innerHTML = `<tr><td colspan="3" class="loadingRow">${escapeHtml(data.error)}</td></tr>`;
+      return;
+    }
+    renderCategoryRows(data.keywords || []);
+  } catch (e) {
+    body.innerHTML = `<tr><td colspan="3" class="loadingRow">불러오지 못했어요, 다시 시도해주세요</td></tr>`;
+  }
+}
+
+function renderCategoryRows(keywords) {
+  const body = document.getElementById("catBody");
+  body.innerHTML = keywords.map((k) => `
+    <tr class="catRow" onclick="toggleRelated('${encodeURIComponent(k.keyword)}')">
+      <td class="kw">${escapeHtml(k.keyword)}</td>
+      <td><span class="comp ${compClass(k.compIdx)}">${escapeHtml(k.compIdx || "-")}</span></td>
+      <td class="total">${fmt(k.total)}</td>
+    </tr>
+    <tr class="relatedRow" id="related-${encodeURIComponent(k.keyword)}" style="display:none;">
+      <td colspan="3"><div class="relatedList"></div></td>
+    </tr>
+  `).join("");
+}
+
+async function toggleRelated(encodedKw) {
+  const kw = decodeURIComponent(encodedKw);
+  const row = document.getElementById(`related-${encodedKw}`);
+  if (!row) return;
+
+  if (openRelatedKeyword === kw) {
+    row.style.display = "none";
+    openRelatedKeyword = null;
+    return;
+  }
+  if (openRelatedKeyword) {
+    const prevRow = document.getElementById(`related-${encodeURIComponent(openRelatedKeyword)}`);
+    if (prevRow) prevRow.style.display = "none";
+  }
+  openRelatedKeyword = kw;
+  row.style.display = "table-row";
+  const listEl = row.querySelector(".relatedList");
+
+  if (relatedCache[kw]) {
+    renderRelatedList(listEl, relatedCache[kw]);
+    return;
+  }
+  listEl.innerHTML = `<div class="loadingRow">연관 검색어 불러오는 중...</div>`;
+  try {
+    const res = await fetch(`${API_BASE}/related?q=${encodeURIComponent(kw)}`);
+    const data = await res.json();
+    if (data.error) {
+      listEl.innerHTML = `<div class="loadingRow">${escapeHtml(data.error)}</div>`;
+      return;
+    }
+    relatedCache[kw] = data.related || [];
+    renderRelatedList(listEl, relatedCache[kw]);
+  } catch (e) {
+    listEl.innerHTML = `<div class="loadingRow">불러오지 못했어요</div>`;
+  }
+}
+
+function renderRelatedList(listEl, related) {
+  if (!related.length) {
+    listEl.innerHTML = `<div class="loadingRow">연관 검색어가 없어요</div>`;
+    return;
+  }
+  listEl.innerHTML = related.map((r) => `
+    <div class="relatedItem"><span class="rk">${escapeHtml(r.keyword)}</span><span class="rv">${fmt(r.total)}</span></div>
+  `).join("");
+}
+
 render();
+loadCategories();
 </script>
 </body>
 </html>
