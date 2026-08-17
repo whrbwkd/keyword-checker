@@ -187,7 +187,7 @@
   <div id="errBox"></div>
 
   <div class="notice">
-    ⚠️ 발행량(경쟁 블로그 개수)은 네이버 API 연동 문제로 현재 준비중입니다. 대신 카테고리 랭킹에는 네이버가 주는 "경쟁도"(높음/중간/낮음)를 표시해요.
+    ℹ️ 발행량은 네이버 자체 API 대신 <b>빙(Bing) 검색결과 개수</b>(site:blog.naver.com 기준)로 추정한 근사치예요. 정확한 공식 수치는 아니지만, 키워드 간 상대적인 경쟁 강도를 가늠하는 용도로 참고하세요.
   </div>
 
   <div class="sectionTitle">📊 카테고리별 인기 키워드</div>
@@ -223,6 +223,7 @@
             <th>모바일</th>
             <th>합계</th>
             <th>발행량</th>
+            <th>블루오션지수</th>
             <th></th>
           </tr>
         </thead>
@@ -267,6 +268,7 @@ function render() {
       <td>${fmt(r.mobileSearch)}</td>
       <td class="total">${fmt(r.totalSearch)}</td>
       <td class="muted">${r.publishCount !== null && r.publishCount !== undefined ? fmt(r.publishCount) : "준비중"}</td>
+      <td class="total">${r.ratio !== null && r.ratio !== undefined ? r.ratio.toFixed(1) : "-"}</td>
       <td><button class="delBtn" onclick="removeKeyword('${encodeURIComponent(r.keyword)}')">✕</button></td>
     </tr>
   `).join("");
